@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Bell, CheckCircle2, CircleDot, Inbox } from "lucide-react";
 import { api, ApiError } from "../api";
 import { useHub } from "../context";
 import { formatDateTime, formatRelative } from "../format";
@@ -35,11 +36,19 @@ export function CardsPage() {
           <p>处理 Agent 发出的 ask 决策，查看 notice，并在完成后 resolve 卡片。</p>
         </div>
       </div>
+
+      <div className="kpi-grid">
+        <Kpi label="待处理" value={counts.open ?? 0} hint="open" tone="warn" icon={<Inbox size={15} strokeWidth={1.75} />} />
+        <Kpi label="已决策" value={counts.decided ?? 0} hint="decided" tone="accent" icon={<CircleDot size={15} strokeWidth={1.75} />} />
+        <Kpi label="已完成" value={counts.done ?? 0} hint="done" tone="ok" icon={<CheckCircle2 size={15} strokeWidth={1.75} />} />
+        <Kpi label="已关闭" value={counts.closed ?? 0} hint="closed" tone="neutral" icon={<Bell size={15} strokeWidth={1.75} />} />
+      </div>
+
       <div className="tabs">
         {TABS.map((item) => (
           <button key={item.id} className={`tab${tab === item.id ? " active" : ""}`} onClick={() => setTab(item.id)}>
             {item.label}
-            <span className={`badge ${item.id === "open" && (counts.open ?? 0) > 0 ? "warn" : ""}`} style={{ marginLeft: 6 }}>
+            <span className={`badge ${item.id === "open" && (counts.open ?? 0) > 0 ? "warn" : ""}`}>
               {counts[item.id] ?? 0}
             </span>
           </button>
@@ -54,6 +63,31 @@ export function CardsPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  hint,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  tone: "accent" | "ok" | "warn" | "neutral";
+  icon: ReactNode;
+}) {
+  return (
+    <div className="kpi">
+      <div className="kpi-top">
+        <div className="label">{label}</div>
+        <span className={`kpi-icon ${tone}`}>{icon}</span>
+      </div>
+      <div className="value">{value}</div>
+      <div className="hint">{hint}</div>
     </div>
   );
 }
@@ -177,7 +211,7 @@ function CardPanel({
 
       {canResolve ? (
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <Field label="Resolve 摘要（可选）" className="span-2" >
+          <Field label="Resolve 摘要（可选）" className="span-2">
             <input value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="summary" />
           </Field>
           <button className="btn" disabled={busy} onClick={() => void submitResolve()} style={{ marginBottom: 12 }}>

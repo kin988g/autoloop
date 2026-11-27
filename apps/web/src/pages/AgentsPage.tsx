@@ -1,7 +1,8 @@
-import { Save } from "lucide-react";
+import type { ReactNode } from "react";
+import { Bot, Cloud, Save, Sparkles, SquareTerminal, WandSparkles } from "lucide-react";
 import { useConfigDraft } from "../hooks/useConfigDraft";
 import { AGENT_ACCESS, type AppConfig } from "../types";
-import { Field } from "../components/ui";
+import { Field, SaveBar, Toggle } from "../components/ui";
 
 export function AgentsPage() {
   const { draft, dirty, setDraft, reset, save } = useConfigDraft();
@@ -28,7 +29,7 @@ export function AgentsPage() {
           <h2>Agent 与参数</h2>
           <p>配置 Claude / Codex / Cursor / Command / 豆包 适配器，以及 Hub 与 Worker 运行参数。</p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="page-header-actions">
           {dirty ? (
             <span className="pill">
               <span className="dirty-dot" /> 有未保存更改
@@ -38,25 +39,21 @@ export function AgentsPage() {
             重置
           </button>
           <button className="btn primary" onClick={() => void save()}>
-            <Save size={15} />
+            <Save size={15} strokeWidth={1.75} />
             保存配置
           </button>
         </div>
       </div>
 
-      <section className="panel">
-        <h3>Agents</h3>
-        <div className="form-grid">
-          <Field label="Claude">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={claude.enabled}
-                onChange={(event) => patchAgents({ claude: { ...claude, enabled: event.target.checked } })}
-              />
-              启用
-            </label>
-          </Field>
+      <div className="agent-grid">
+        <AgentCard
+          tone="claude"
+          title="Claude"
+          subtitle="Anthropic Claude CLI 适配器"
+          icon={<WandSparkles size={16} strokeWidth={1.75} />}
+          enabled={claude.enabled}
+          onToggle={(enabled) => patchAgents({ claude: { ...claude, enabled } })}
+        >
           <Field label="Claude bin（可选）">
             <input
               value={claude.bin ?? ""}
@@ -64,7 +61,7 @@ export function AgentsPage() {
               onChange={(event) => patchAgents({ claude: { ...claude, bin: event.target.value || undefined } })}
             />
           </Field>
-          <Field label="Claude defaultAccess" className="span-2">
+          <Field label="Claude defaultAccess">
             <select
               value={claude.defaultAccess ?? ""}
               onChange={(event) => patchAgents({ claude: { ...claude, defaultAccess: event.target.value || undefined } })}
@@ -77,67 +74,53 @@ export function AgentsPage() {
               ))}
             </select>
           </Field>
-          <Field label="Codex">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={codex.enabled}
-                onChange={(event) => patchAgents({ codex: { ...codex, enabled: event.target.checked } })}
-              />
-              启用
-            </label>
-          </Field>
-          <Field label="Codex bin（可选）">
+        </AgentCard>
+
+        <AgentCard
+          tone="codex"
+          title="Codex"
+          subtitle="OpenAI Codex CLI 适配器"
+          icon={<Sparkles size={16} strokeWidth={1.75} />}
+          enabled={codex.enabled}
+          onToggle={(enabled) => patchAgents({ codex: { ...codex, enabled } })}
+        >
+          <Field label="Codex bin（可选）" className="span-2">
             <input
               value={codex.bin ?? ""}
               placeholder="codex"
               onChange={(event) => patchAgents({ codex: { ...codex, bin: event.target.value || undefined } })}
             />
           </Field>
-          <Field label="Cursor">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={cursor.enabled}
-                onChange={(event) => patchAgents({ cursor: { ...cursor, enabled: event.target.checked } })}
-              />
-              启用
-            </label>
-          </Field>
-          <Field label="Cursor bin（可选）">
+        </AgentCard>
+
+        <AgentCard
+          tone="cursor"
+          title="Cursor"
+          subtitle="本机 Cursor Agent CLI"
+          icon={<Bot size={16} strokeWidth={1.75} />}
+          enabled={cursor.enabled}
+          onToggle={(enabled) => patchAgents({ cursor: { ...cursor, enabled } })}
+        >
+          <Field label="Cursor bin（可选）" className="span-2">
             <input
               value={cursor.bin ?? ""}
               placeholder="agent"
               onChange={(event) => patchAgents({ cursor: { ...cursor, bin: event.target.value || undefined } })}
             />
           </Field>
-          <Field label="Command 适配器" className="span-2">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={command.enabled}
-                onChange={(event) => patchAgents({ command: { enabled: event.target.checked } })}
-              />
-              启用本地 command 适配器
-            </label>
-          </Field>
-        </div>
-      </section>
+        </AgentCard>
 
-      <section className="panel">
-        <h3>豆包 / Doubao</h3>
-        <p className="muted">通过火山方舟 OpenAI 兼容 API 调用豆包模型。API Key 从 Secrets 中按名称读取，也可回退到环境变量 ARK_API_KEY / DOUBAO_API_KEY。</p>
-        <div className="form-grid">
-          <Field label="启用">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={doubao.enabled}
-                onChange={(event) => patchAgents({ doubao: { ...doubao, enabled: event.target.checked } })}
-              />
-              启用豆包适配器
-            </label>
-          </Field>
+        <AgentCard
+          tone="doubao"
+          title="豆包 / Doubao"
+          subtitle="火山方舟 OpenAI 兼容 API"
+          icon={<Cloud size={16} strokeWidth={1.75} />}
+          enabled={doubao.enabled}
+          onToggle={(enabled) => patchAgents({ doubao: { ...doubao, enabled } })}
+        >
+          <p className="muted" style={{ margin: "-4px 0 10px", gridColumn: "1 / -1" }}>
+            API Key 从 Secrets 中按名称读取，也可回退到环境变量 ARK_API_KEY / DOUBAO_API_KEY。
+          </p>
           <Field label="Base URL">
             <input
               value={doubao.baseUrl ?? ""}
@@ -156,7 +139,7 @@ export function AgentsPage() {
               }
             />
           </Field>
-          <Field label="API Key Secret 名称">
+          <Field label="API Key Secret 名称" className="span-2">
             <input
               value={doubao.apiKeySecret ?? ""}
               placeholder="ARK_API_KEY"
@@ -165,8 +148,21 @@ export function AgentsPage() {
               }
             />
           </Field>
-        </div>
-      </section>
+        </AgentCard>
+
+        <AgentCard
+          tone="command"
+          title="Command"
+          subtitle="本地命令行适配器"
+          icon={<SquareTerminal size={16} strokeWidth={1.75} />}
+          enabled={command.enabled}
+          onToggle={(enabled) => patchAgents({ command: { enabled } })}
+        >
+          <p className="muted" style={{ margin: "0 0 8px" }}>
+            启用后，规则可将 adapter 设为 command，直接执行本机命令并把 {"{prompt}"} 替换为规则指令。
+          </p>
+        </AgentCard>
+      </div>
 
       <section className="panel">
         <h3>Hub</h3>
@@ -212,16 +208,11 @@ export function AgentsPage() {
         <h3>Worker</h3>
         <div className="form-grid">
           <Field label="启用">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={draft.worker.enabled}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, worker: { ...current.worker, enabled: event.target.checked } }))
-                }
-              />
-              enabled
-            </label>
+            <Toggle
+              checked={draft.worker.enabled}
+              onChange={(enabled) => setDraft((current) => ({ ...current, worker: { ...current.worker, enabled } }))}
+              label="enabled"
+            />
           </Field>
           <Field label="name">
             <input
@@ -257,6 +248,42 @@ export function AgentsPage() {
           </Field>
         </div>
       </section>
+
+      <SaveBar dirty={dirty} onReset={reset} onSave={() => void save()} saveLabel="保存配置" />
     </div>
+  );
+}
+
+function AgentCard({
+  tone,
+  title,
+  subtitle,
+  icon,
+  enabled,
+  onToggle,
+  children,
+}: {
+  tone: string;
+  title: string;
+  subtitle: string;
+  icon: ReactNode;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="agent-card">
+      <div className="agent-card-head">
+        <div className="agent-card-title">
+          <span className={`agent-icon ${tone}`}>{icon}</span>
+          <div>
+            <h3>{title}</h3>
+            <p>{subtitle}</p>
+          </div>
+        </div>
+        <Toggle checked={enabled} onChange={onToggle} ariaLabel={`启用 ${title}`} />
+      </div>
+      {children ? <div className="form-grid">{children}</div> : null}
+    </section>
   );
 }

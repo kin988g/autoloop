@@ -13,7 +13,7 @@ import {
   type Rule,
   type TriggerType,
 } from "../types";
-import { Empty, Field, StatusChip } from "../components/ui";
+import { Empty, Field, SaveBar, StatusChip, Toggle } from "../components/ui";
 
 export function RulesPage() {
   const { rules: serverRules, toast, refresh, applyStateRules } = useHub();
@@ -168,6 +168,12 @@ export function RulesPage() {
     setJsonMode(true);
   };
 
+  const resetDrafts = () => {
+    setDrafts(cloneRules(serverRules));
+    setBaseline(JSON.stringify(serverRules));
+    setJsonMode(false);
+  };
+
   const quickAction = async (kind: "pause" | "resume" | "run", name: string) => {
     if (dirty) {
       toast({ kind: "info", title: "请先保存未提交的规则修改，再执行暂停 / 恢复 / 立即运行" });
@@ -194,7 +200,7 @@ export function RulesPage() {
           <h2>规则编辑</h2>
           <p>可视化编辑 rules.json。保存时将完整提交 `PUT /v1/rules`。</p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="page-header-actions">
           {dirty ? (
             <span className="pill">
               <span className="dirty-dot" /> 有未保存更改
@@ -203,19 +209,11 @@ export function RulesPage() {
           <button className="btn" onClick={() => (jsonMode ? setJsonMode(false) : openJson())}>
             {jsonMode ? "返回表单" : "JSON 视图"}
           </button>
-          <button
-            className="btn"
-            disabled={!dirty}
-            onClick={() => {
-              setDrafts(cloneRules(serverRules));
-              setBaseline(JSON.stringify(serverRules));
-              setJsonMode(false);
-            }}
-          >
+          <button className="btn" disabled={!dirty} onClick={resetDrafts}>
             重置
           </button>
           <button className="btn primary" disabled={saving} onClick={() => void save()}>
-            <Save size={15} />
+            <Save size={15} strokeWidth={1.75} />
             保存全部规则
           </button>
         </div>
@@ -239,7 +237,7 @@ export function RulesPage() {
             <div className="toolbar">
               <input placeholder="搜索规则…" value={query} onChange={(event) => setQuery(event.target.value)} />
               <button className="btn sm primary" onClick={addRule}>
-                <Plus size={14} />
+                <Plus size={14} strokeWidth={1.75} />
                 新增
               </button>
             </div>
@@ -256,31 +254,32 @@ export function RulesPage() {
                   >
                     <div className="row">
                       <strong className="truncate">{rule.name || "(未命名)"}</strong>
-                      <span className="dim">{triggerLabel(rule.trigger.type)}</span>
+                      <span className={`trigger-badge ${rule.trigger.type}`}>{triggerLabel(rule.trigger.type)}</span>
                     </div>
                     <div className="row">
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <span className={`adapter-badge ${rule.agent.adapter}`}>{adapterLabel(rule.agent.adapter)}</span>
                         <StatusChip status={rule.enabled ? "enabled" : "disabled"} />
                         {rule.paused ? <StatusChip status="paused" /> : null}
                       </div>
                       <div style={{ display: "flex", gap: 4 }} onClick={(event) => event.stopPropagation()}>
                         {rule.paused ? (
                           <button className="btn icon sm" title="恢复" onClick={() => void quickAction("resume", rule.name)}>
-                            <Play size={13} />
+                            <Play size={13} strokeWidth={1.75} />
                           </button>
                         ) : (
                           <button className="btn icon sm" title="暂停" onClick={() => void quickAction("pause", rule.name)}>
-                            <Pause size={13} />
+                            <Pause size={13} strokeWidth={1.75} />
                           </button>
                         )}
                         <button className="btn icon sm" title="立即运行" onClick={() => void quickAction("run", rule.name)}>
-                          <Play size={13} />
+                          <Play size={13} strokeWidth={1.75} />
                         </button>
                         <button className="btn icon sm" title="复制" onClick={() => duplicate(rule)}>
-                          <Copy size={13} />
+                          <Copy size={13} strokeWidth={1.75} />
                         </button>
                         <button className="btn icon sm danger" title="删除" onClick={() => remove(rule.name)}>
-                          <Trash2 size={13} />
+                          <Trash2 size={13} strokeWidth={1.75} />
                         </button>
                       </div>
                     </div>
@@ -304,6 +303,8 @@ export function RulesPage() {
           </section>
         </div>
       )}
+
+      <SaveBar dirty={dirty} onReset={resetDrafts} onSave={() => void save()} saving={saving} saveLabel="保存全部规则" />
     </div>
   );
 }
@@ -347,252 +348,254 @@ function RuleForm({
 
   return (
     <>
-      <h3 style={{ marginTop: 0 }}>规则详情</h3>
-      <div className="form-grid">
-        <Field label="名称 name" hint={nameClash ? "名称与其他规则冲突" : "保存后将作为 API 路径标识"}>
-          <input value={rule.name} onChange={(event) => onRename(event.target.value)} />
-        </Field>
-        <Field label="车道字段 laneKey（可选）">
-          <input
-            value={rule.laneKey ?? ""}
-            onChange={(event) => onChange((current) => ({ ...current, laneKey: event.target.value || undefined }))}
-          />
-        </Field>
-        <Field label="描述 description" className="span-2">
-          <textarea
-            style={{ minHeight: 64 }}
-            value={rule.description ?? ""}
-            onChange={(event) => onChange((current) => ({ ...current, description: event.target.value || undefined }))}
-          />
-        </Field>
-      </div>
-      <div className="check-row">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={rule.enabled}
-            onChange={(event) => onChange((current) => ({ ...current, enabled: event.target.checked }))}
-          />
-          启用 enabled
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={Boolean(rule.paused)}
-            onChange={(event) => onChange((current) => ({ ...current, paused: event.target.checked }))}
-          />
-          暂停 paused
-        </label>
-      </div>
-
-      <div className="section-title">通道 channels</div>
-      <div className="check-row">
-        {CHANNEL_PRESETS.map((name) => (
-          <label className="check" key={name}>
-            <input type="checkbox" checked={rule.channels.includes(name)} onChange={(event) => toggleChannel(name, event.target.checked)} />
-            {name}
-          </label>
-        ))}
-        {rule.channels
-          .filter((name) => !(CHANNEL_PRESETS as readonly string[]).includes(name))
-          .map((name) => (
-            <label className="check" key={name}>
-              <input type="checkbox" checked onChange={() => toggleChannel(name, false)} />
-              {name}
-            </label>
-          ))}
-      </div>
-      <div className="cmd-row">
-        <input
-          value={customChannel}
-          placeholder="自定义通道标签"
-          onChange={(event) => setCustomChannel(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              const name = customChannel.trim();
-              if (name) {
-                toggleChannel(name, true);
-                setCustomChannel("");
-              }
-            }
-          }}
-        />
-        <button
-          className="btn"
-          type="button"
-          onClick={() => {
-            const name = customChannel.trim();
-            if (name) {
-              toggleChannel(name, true);
-              setCustomChannel("");
-            }
-          }}
-        >
-          添加
-        </button>
-      </div>
-
-      <div className="section-title">触发器 trigger</div>
-      <div className="tabs" style={{ marginBottom: 12 }}>
-        {(["cron", "webhook", "manual", "event"] as TriggerType[]).map((type) => (
-          <button key={type} className={`tab${rule.trigger.type === type ? " active" : ""}`} onClick={() => setTrigger(type)} type="button">
-            {triggerLabel(type)}
-          </button>
-        ))}
-      </div>
-      {rule.trigger.type === "cron" ? (
+      <div className="editor-section">
+        <div className="section-title">基础信息</div>
         <div className="form-grid">
-          <Field label="cron（5 段）" className="span-2">
+          <Field label="名称 name" hint={nameClash ? "名称与其他规则冲突" : "保存后将作为 API 路径标识"}>
+            <input value={rule.name} onChange={(event) => onRename(event.target.value)} />
+          </Field>
+          <Field label="车道字段 laneKey（可选）">
             <input
-              className="mono"
-              value={rule.trigger.cron ?? ""}
-              onChange={(event) => onChange((current) => ({ ...current, trigger: { ...current.trigger, cron: event.target.value } }))}
-              placeholder="0 9 * * *"
+              value={rule.laneKey ?? ""}
+              onChange={(event) => onChange((current) => ({ ...current, laneKey: event.target.value || undefined }))}
             />
           </Field>
-          <div className="span-2 option-row" style={{ marginBottom: 12 }}>
-            {CRON_PRESETS.map((preset) => (
-              <button
-                key={preset.value + preset.label}
-                className={`option-btn${rule.trigger.cron === preset.value ? " selected" : ""}`}
-                type="button"
-                onClick={() => onChange((current) => ({ ...current, trigger: { ...current.trigger, cron: preset.value } }))}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <Field label="timezone">
-            <input
-              value={rule.trigger.timezone ?? ""}
-              placeholder="Asia/Shanghai"
-              onChange={(event) =>
-                onChange((current) => ({ ...current, trigger: { ...current.trigger, timezone: event.target.value || undefined } }))
-              }
+          <Field label="描述 description" className="span-2">
+            <textarea
+              style={{ minHeight: 64 }}
+              value={rule.description ?? ""}
+              onChange={(event) => onChange((current) => ({ ...current, description: event.target.value || undefined }))}
             />
           </Field>
         </div>
-      ) : null}
-      {rule.trigger.type === "webhook" ? (
-        <div className="form-grid">
-          <Field label="source">
-            <input
-              value={rule.trigger.source ?? ""}
-              placeholder="github / gitlab / custom"
-              onChange={(event) =>
-                onChange((current) => ({ ...current, trigger: { ...current.trigger, source: event.target.value || undefined } }))
-              }
-            />
-          </Field>
-          <Field label="eventType（可选）">
+        <div className="check-row">
+          <Toggle
+            checked={rule.enabled}
+            onChange={(enabled) => onChange((current) => ({ ...current, enabled }))}
+            label="启用 enabled"
+          />
+          <Toggle
+            checked={Boolean(rule.paused)}
+            onChange={(paused) => onChange((current) => ({ ...current, paused }))}
+            label="暂停 paused"
+          />
+        </div>
+      </div>
+
+      <div className="editor-section">
+        <div className="section-title">触发器</div>
+        <div className="tabs" style={{ marginBottom: 12 }}>
+          {(["cron", "webhook", "manual", "event"] as TriggerType[]).map((type) => (
+            <button key={type} className={`tab${rule.trigger.type === type ? " active" : ""}`} onClick={() => setTrigger(type)} type="button">
+              {triggerLabel(type)}
+            </button>
+          ))}
+        </div>
+        {rule.trigger.type === "cron" ? (
+          <div className="form-grid">
+            <Field label="cron（5 段）" className="span-2">
+              <input
+                className="mono"
+                value={rule.trigger.cron ?? ""}
+                onChange={(event) => onChange((current) => ({ ...current, trigger: { ...current.trigger, cron: event.target.value } }))}
+                placeholder="0 9 * * *"
+              />
+            </Field>
+            <div className="span-2 option-row" style={{ marginBottom: 12 }}>
+              {CRON_PRESETS.map((preset) => (
+                <button
+                  key={preset.value + preset.label}
+                  className={`option-btn${rule.trigger.cron === preset.value ? " selected" : ""}`}
+                  type="button"
+                  onClick={() => onChange((current) => ({ ...current, trigger: { ...current.trigger, cron: preset.value } }))}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <Field label="timezone">
+              <input
+                value={rule.trigger.timezone ?? ""}
+                placeholder="Asia/Shanghai"
+                onChange={(event) =>
+                  onChange((current) => ({ ...current, trigger: { ...current.trigger, timezone: event.target.value || undefined } }))
+                }
+              />
+            </Field>
+          </div>
+        ) : null}
+        {rule.trigger.type === "webhook" ? (
+          <div className="form-grid">
+            <Field label="source">
+              <input
+                value={rule.trigger.source ?? ""}
+                placeholder="github / gitlab / custom"
+                onChange={(event) =>
+                  onChange((current) => ({ ...current, trigger: { ...current.trigger, source: event.target.value || undefined } }))
+                }
+              />
+            </Field>
+            <Field label="eventType（可选）">
+              <input
+                value={rule.trigger.eventType ?? ""}
+                placeholder="issue.opened"
+                onChange={(event) =>
+                  onChange((current) => ({ ...current, trigger: { ...current.trigger, eventType: event.target.value || undefined } }))
+                }
+              />
+            </Field>
+          </div>
+        ) : null}
+        {rule.trigger.type === "event" ? (
+          <Field label="eventType">
             <input
               value={rule.trigger.eventType ?? ""}
-              placeholder="issue.opened"
+              placeholder="task.completed"
               onChange={(event) =>
                 onChange((current) => ({ ...current, trigger: { ...current.trigger, eventType: event.target.value || undefined } }))
               }
             />
           </Field>
-        </div>
-      ) : null}
-      {rule.trigger.type === "event" ? (
-        <Field label="eventType">
-          <input
-            value={rule.trigger.eventType ?? ""}
-            placeholder="task.completed"
-            onChange={(event) =>
-              onChange((current) => ({ ...current, trigger: { ...current.trigger, eventType: event.target.value || undefined } }))
-            }
-          />
-        </Field>
-      ) : null}
-      {rule.trigger.type === "manual" ? <p className="muted">手动规则只能通过「立即运行」或 API `POST /v1/rules/:name/run` 触发。</p> : null}
-
-      <div className="section-title">Agent</div>
-      <div className="form-grid">
-        <Field label="adapter">
-          <select
-            value={rule.agent.adapter}
-            onChange={(event) =>
-              onChange((current) => ({
-                ...current,
-                agent: { ...current.agent, adapter: event.target.value as Rule["agent"]["adapter"] },
-              }))
-            }
-          >
-            {AGENT_ADAPTERS.map((adapter) => (
-              <option key={adapter} value={adapter}>
-                {adapterLabel(adapter)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="access">
-          <select
-            value={rule.agent.access}
-            onChange={(event) =>
-              onChange((current) => ({
-                ...current,
-                agent: { ...current.agent, access: event.target.value as Rule["agent"]["access"] },
-              }))
-            }
-          >
-            {AGENT_ACCESS.map((access) => (
-              <option key={access} value={access}>
-                {access}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="cwd">
-          <input
-            value={rule.agent.cwd}
-            onChange={(event) => onChange((current) => ({ ...current, agent: { ...current.agent, cwd: event.target.value } }))}
-          />
-        </Field>
-        <Field label="timeoutMinutes" hint="默认 180">
-          <input
-            type="number"
-            min={1}
-            value={rule.agent.timeoutMinutes ?? ""}
-            onChange={(event) =>
-              onChange((current) => ({
-                ...current,
-                agent: {
-                  ...current.agent,
-                  timeoutMinutes: event.target.value === "" ? undefined : Number(event.target.value),
-                },
-              }))
-            }
-          />
-        </Field>
-        <Field label="model（可选）" hint="Cursor 会作为 --model 传递">
-          <input
-            value={rule.agent.model ?? ""}
-            placeholder="留空则使用 CLI 默认模型"
-            onChange={(event) =>
-              onChange((current) => ({
-                ...current,
-                agent: { ...current.agent, model: event.target.value || undefined },
-              }))
-            }
-          />
-        </Field>
-        <Field label="prompt（受信任的任务指令）" className="span-2">
-          <textarea
-            value={rule.agent.prompt}
-            onChange={(event) => onChange((current) => ({ ...current, agent: { ...current.agent, prompt: event.target.value } }))}
-          />
-        </Field>
+        ) : null}
+        {rule.trigger.type === "manual" ? <p className="muted">手动规则只能通过「立即运行」或 API `POST /v1/rules/:name/run` 触发。</p> : null}
       </div>
 
-      {rule.agent.adapter === "command" ? (
-        <CommandEditor
-          command={rule.agent.command ?? []}
-          onChange={(command) => onChange((current) => ({ ...current, agent: { ...current.agent, command } }))}
-        />
-      ) : null}
+      <div className="editor-section">
+        <div className="section-title">执行器</div>
+        <div className="form-grid">
+          <Field label="adapter">
+            <select
+              value={rule.agent.adapter}
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  agent: { ...current.agent, adapter: event.target.value as Rule["agent"]["adapter"] },
+                }))
+              }
+            >
+              {AGENT_ADAPTERS.map((adapter) => (
+                <option key={adapter} value={adapter}>
+                  {adapterLabel(adapter)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="access">
+            <select
+              value={rule.agent.access}
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  agent: { ...current.agent, access: event.target.value as Rule["agent"]["access"] },
+                }))
+              }
+            >
+              {AGENT_ACCESS.map((access) => (
+                <option key={access} value={access}>
+                  {access}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="cwd">
+            <input
+              value={rule.agent.cwd}
+              onChange={(event) => onChange((current) => ({ ...current, agent: { ...current.agent, cwd: event.target.value } }))}
+            />
+          </Field>
+          <Field label="timeoutMinutes" hint="默认 180">
+            <input
+              type="number"
+              min={1}
+              value={rule.agent.timeoutMinutes ?? ""}
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  agent: {
+                    ...current.agent,
+                    timeoutMinutes: event.target.value === "" ? undefined : Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </Field>
+          <Field label="model（可选）" hint="Cursor 会作为 --model 传递">
+            <input
+              value={rule.agent.model ?? ""}
+              placeholder="留空则使用 CLI 默认模型"
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  agent: { ...current.agent, model: event.target.value || undefined },
+                }))
+              }
+            />
+          </Field>
+          <Field label="prompt（受信任的任务指令）" className="span-2">
+            <textarea
+              className="prompt-editor mono"
+              value={rule.agent.prompt}
+              onChange={(event) => onChange((current) => ({ ...current, agent: { ...current.agent, prompt: event.target.value } }))}
+            />
+          </Field>
+        </div>
+
+        {rule.agent.adapter === "command" ? (
+          <CommandEditor
+            command={rule.agent.command ?? []}
+            onChange={(command) => onChange((current) => ({ ...current, agent: { ...current.agent, command } }))}
+          />
+        ) : null}
+      </div>
+
+      <div className="editor-section">
+        <div className="section-title">通知通道</div>
+        <div className="check-row">
+          {CHANNEL_PRESETS.map((name) => (
+            <Toggle
+              key={name}
+              checked={rule.channels.includes(name)}
+              onChange={(checked) => toggleChannel(name, checked)}
+              label={name}
+            />
+          ))}
+          {rule.channels
+            .filter((name) => !(CHANNEL_PRESETS as readonly string[]).includes(name))
+            .map((name) => (
+              <Toggle key={name} checked onChange={() => toggleChannel(name, false)} label={name} />
+            ))}
+        </div>
+        <div className="cmd-row">
+          <input
+            value={customChannel}
+            placeholder="自定义通道标签"
+            onChange={(event) => setCustomChannel(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const name = customChannel.trim();
+                if (name) {
+                  toggleChannel(name, true);
+                  setCustomChannel("");
+                }
+              }
+            }}
+          />
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              const name = customChannel.trim();
+              if (name) {
+                toggleChannel(name, true);
+                setCustomChannel("");
+              }
+            }}
+          >
+            添加
+          </button>
+        </div>
+      </div>
     </>
   );
 }
@@ -621,12 +624,12 @@ function CommandEditor({ command, onChange }: { command: string[]; onChange: (co
             onClick={() => onChange(list.filter((_, current) => current !== index))}
             disabled={list.length <= 1}
           >
-            <Trash2 size={14} />
+            <Trash2 size={14} strokeWidth={1.75} />
           </button>
         </div>
       ))}
       <button className="btn sm" type="button" onClick={() => onChange([...list, ""]) }>
-        <Plus size={14} />
+        <Plus size={14} strokeWidth={1.75} />
         添加参数
       </button>
     </>

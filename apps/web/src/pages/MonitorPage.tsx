@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
-import { Send, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Activity, Bell, Radio, Send, Timer, X } from "lucide-react";
 import { api, ApiError } from "../api";
 import { useHub } from "../context";
-import { formatDateTime, formatRelative, statusLabel } from "../format";
+import { formatDateTime, formatRelative, statusLabel, toMillis } from "../format";
 import { isActiveRunStatus, type PostEventBody, type RunRecord } from "../types";
 import { Empty, Field, Modal, StatusChip } from "../components/ui";
 
@@ -46,23 +46,25 @@ export function MonitorPage() {
           <h2>实时监控</h2>
           <p>查看 Hub 运行指标、已连接 Worker 与 Live Runs。</p>
         </div>
-        <button className="btn primary" onClick={() => setEventOpen(true)}>
-          <Send size={15} />
-          发送测试事件
-        </button>
+        <div className="page-header-actions">
+          <button className="btn primary" onClick={() => setEventOpen(true)}>
+            <Send size={15} strokeWidth={1.75} />
+            发送测试事件
+          </button>
+        </div>
       </div>
 
       <div className="kpi-grid">
-        <Kpi label="总 Runs" value={stats?.totalRuns ?? 0} hint="totalRuns" />
-        <Kpi label="进行中" value={stats?.activeRuns ?? 0} hint="activeRuns" />
-        <Kpi label="待审批卡片" value={stats?.openCards ?? 0} hint="openCards" />
-        <Kpi label="事件总数" value={stats?.totalEvents ?? 0} hint="totalEvents" />
+        <Kpi label="总 Runs" value={stats?.totalRuns ?? 0} hint="totalRuns" tone="neutral" icon={<Activity size={15} strokeWidth={1.75} />} />
+        <Kpi label="进行中" value={stats?.activeRuns ?? 0} hint="activeRuns" tone="accent" icon={<Timer size={15} strokeWidth={1.75} />} />
+        <Kpi label="待审批卡片" value={stats?.openCards ?? 0} hint="openCards" tone="warn" icon={<Bell size={15} strokeWidth={1.75} />} />
+        <Kpi label="事件总数" value={stats?.totalEvents ?? 0} hint="totalEvents" tone="ok" icon={<Radio size={15} strokeWidth={1.75} />} />
       </div>
 
       <div className="grid-2">
         <section className="panel">
           <div className="toolbar">
-            <h3 style={{ margin: 0, flex: 1 }}>Live Runs</h3>
+            <h3>Live Runs</h3>
             <select value={ruleFilter} onChange={(event) => setRuleFilter(event.target.value)}>
               <option value="">全部规则</option>
               {ruleNames.map((name) => (
@@ -71,15 +73,24 @@ export function MonitorPage() {
                 </option>
               ))}
             </select>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="">全部状态</option>
-              {statuses.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabel(status)}
-                </option>
-              ))}
-            </select>
           </div>
+          {statuses.length > 0 ? (
+            <div className="tabs" style={{ marginBottom: 14 }}>
+              <button className={`tab${statusFilter === "" ? " active" : ""}`} onClick={() => setStatusFilter("")} type="button">
+                全部
+              </button>
+              {statuses.map((status) => (
+                <button
+                  key={status}
+                  className={`tab${statusFilter === status ? " active" : ""}`}
+                  onClick={() => setStatusFilter(status)}
+                  type="button"
+                >
+                  {statusLabel(status)}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {filtered.length === 0 ? (
             <Empty>暂无运行记录。可以用「发送测试事件」或在规则页点击「立即运行」。</Empty>
           ) : (
@@ -91,38 +102,49 @@ export function MonitorPage() {
                     <th>规则</th>
                     <th>状态</th>
                     <th>Lane</th>
+                    <th>时长 / Token</th>
                     <th>时间</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((run) => (
-                    <tr key={run.id} className="clickable" onClick={() => setSelected(run)}>
-                      <td className="mono truncate" title={run.id}>
-                        {run.id}
-                      </td>
-                      <td>{run.ruleName || "—"}</td>
-                      <td>
-                        <StatusChip status={run.status} />
-                      </td>
-                      <td className="muted">{run.lane || "—"}</td>
-                      <td className="muted">{formatRelative(run.updatedAt ?? run.startedAt ?? run.createdAt)}</td>
-                      <td>
-                        {isActiveRunStatus(run.status) ? (
-                          <button
-                            className="btn sm danger"
-                            disabled={cancelling === run.id}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void cancel(run.id);
-                            }}
-                          >
-                            {cancelling === run.id ? "取消中…" : "取消"}
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map((run) => {
+                    const duration = runDuration(run);
+                    const usage = usageLabel(run.usage);
+                    return (
+                      <tr key={run.id} className="clickable" onClick={() => setSelected(run)}>
+                        <td className="mono truncate" title={run.id}>
+                          {run.id}
+                        </td>
+                        <td>{run.ruleName || "—"}</td>
+                        <td>
+                          <StatusChip status={run.status} />
+                        </td>
+                        <td className="muted">{run.lane || "—"}</td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {duration ? <span className="duration-pill">{duration}</span> : <span className="dim">—</span>}
+                            {usage ? <span className="usage-pill">{usage}</span> : null}
+                          </div>
+                        </td>
+                        <td className="muted">{formatRelative(run.updatedAt ?? run.startedAt ?? run.createdAt)}</td>
+                        <td>
+                          {isActiveRunStatus(run.status) ? (
+                            <button
+                              className="btn sm danger"
+                              disabled={cancelling === run.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void cancel(run.id);
+                              }}
+                            >
+                              {cancelling === run.id ? "取消中…" : "取消"}
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -189,6 +211,8 @@ export function MonitorPage() {
             <dd>
               {selected.attempt ?? "—"} / {selected.hops ?? "—"}
             </dd>
+            <dt>时长</dt>
+            <dd>{runDuration(selected) || "—"}</dd>
             <dt>事件</dt>
             <dd className="mono">{selected.eventIds && selected.eventIds.length > 0 ? selected.eventIds.join(", ") : "—"}</dd>
             <dt>创建</dt>
@@ -231,14 +255,62 @@ export function MonitorPage() {
   );
 }
 
-function Kpi({ label, value, hint }: { label: string; value: number; hint: string }) {
+function Kpi({
+  label,
+  value,
+  hint,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  tone: "accent" | "ok" | "warn" | "neutral";
+  icon: ReactNode;
+}) {
   return (
     <div className="kpi">
-      <div className="label">{label}</div>
+      <div className="kpi-top">
+        <div className="label">{label}</div>
+        <span className={`kpi-icon ${tone}`}>{icon}</span>
+      </div>
       <div className="value">{value}</div>
       <div className="hint">{hint}</div>
     </div>
   );
+}
+
+function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const total = Math.round(ms / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function runDuration(run: RunRecord): string | null {
+  const start = toMillis(run.startedAt ?? run.claimedAt ?? run.createdAt);
+  if (start === null) return null;
+  const end = toMillis(run.finishedAt) ?? (isActiveRunStatus(run.status) ? Date.now() : toMillis(run.updatedAt));
+  if (end === null) return null;
+  return formatDurationMs(end - start);
+}
+
+function usageLabel(usage?: Record<string, number>): string | null {
+  if (!usage) return null;
+  const total = usage.total_tokens ?? usage.totalTokens;
+  const input = usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens;
+  const output = usage.output_tokens ?? usage.completion_tokens ?? usage.outputTokens;
+  if (typeof total === "number") return `${total.toLocaleString()} tok`;
+  if (typeof input === "number" || typeof output === "number") {
+    return `${input ?? "—"} / ${output ?? "—"} tok`;
+  }
+  const entries = Object.entries(usage);
+  if (entries.length === 0) return null;
+  return entries.map(([key, value]) => `${key} ${value}`).join(" · ");
 }
 
 function EventModal({ onClose }: { onClose: () => void }) {

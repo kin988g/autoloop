@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api, ApiError } from "../api";
 import { useHub } from "../context";
 import { COMMON_SECRET_KEYS, type SecretKey } from "../types";
@@ -68,14 +68,17 @@ export function SecretsPage() {
           <h2>密钥管理</h2>
           <p>只展示密钥名与是否已配置，永不显示原始值。通过 `PUT /v1/secrets` 写入或删除。</p>
         </div>
-        <button className="btn" onClick={() => void reload()}>
-          刷新列表
-        </button>
+        <div className="page-header-actions">
+          <button className="btn" onClick={() => void reload()}>
+            <RefreshCw size={15} strokeWidth={1.75} />
+            刷新列表
+          </button>
+        </div>
       </div>
 
       <section className="panel">
         <h3>新增 / 更新密钥</h3>
-        <div className="option-row" style={{ marginBottom: 12 }}>
+        <div className="option-row" style={{ marginBottom: 14 }}>
           {COMMON_SECRET_KEYS.map((key) => (
             <button key={key} className={`option-btn${name === key ? " selected" : ""}`} type="button" onClick={() => setName(key)}>
               {key}
@@ -96,7 +99,7 @@ export function SecretsPage() {
           </Field>
         </div>
         <button className="btn primary" disabled={busy} onClick={() => void save()}>
-          <Plus size={15} />
+          <Plus size={15} strokeWidth={1.75} />
           保存密钥
         </button>
       </section>
@@ -110,15 +113,15 @@ export function SecretsPage() {
         ) : (
           <div className="stack">
             {keys.map((item) => (
-              <div className="secret-row" key={item.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div className="secret-row" key={item.name}>
                 <div>
                   <strong className="mono">{item.name}</strong>
-                  <div style={{ marginTop: 4 }}>
+                  <div style={{ marginTop: 6 }}>
                     <span className={`badge ${item.configured ? "ok" : ""}`}>{item.configured ? "已配置" : "未配置"}</span>
                   </div>
                 </div>
                 <button className="btn sm danger" disabled={busy} onClick={() => void unset(item.name)}>
-                  <Trash2 size={14} />
+                  <Trash2 size={14} strokeWidth={1.75} />
                   移除
                 </button>
               </div>

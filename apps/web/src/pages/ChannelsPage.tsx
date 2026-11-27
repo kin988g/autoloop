@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Cloud, Github, Globe, Monitor, Radio, Save } from "lucide-react";
 import { api } from "../api";
 import { useConfigDraft } from "../hooks/useConfigDraft";
 import { presetLabel } from "../format";
 import { WEBHOOK_PRESETS, type SecretKey } from "../types";
-import { Field } from "../components/ui";
+import { Field, SaveBar, Toggle } from "../components/ui";
 
 export function ChannelsPage() {
   const { draft, dirty, setDraft, reset, save } = useConfigDraft();
@@ -30,7 +30,7 @@ export function ChannelsPage() {
           <h2>通道与来源</h2>
           <p>管理通知通道（web / desktop / 飞书 / webhook）以及 GitHub / GitLab 来源。密钥字段可从已配置 secrets 中选择。</p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="page-header-actions">
           {dirty ? (
             <span className="pill">
               <span className="dirty-dot" /> 有未保存更改
@@ -40,7 +40,7 @@ export function ChannelsPage() {
             重置
           </button>
           <button className="btn primary" onClick={() => void save()}>
-            <Save size={15} />
+            <Save size={15} strokeWidth={1.75} />
             保存配置
           </button>
         </div>
@@ -48,56 +48,71 @@ export function ChannelsPage() {
 
       <section className="panel">
         <h3>通道 channels</h3>
-        <div className="form-grid">
-          <Field label="Web 控制台通道">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={draft.channels.web.enabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    channels: { ...current.channels, web: { enabled: event.target.checked } },
-                  }))
-                }
-              />
-              启用 web
-            </label>
-          </Field>
-          <Field label="Desktop 通道">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={draft.channels.desktop.enabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    channels: { ...current.channels, desktop: { enabled: event.target.checked } },
-                  }))
-                }
-              />
-              启用 desktop
-            </label>
-          </Field>
-        </div>
+        <div className="channel-list">
+          <div className="channel-row-head">
+            <div className="agent-card-title">
+              <span className="agent-icon web">
+                <Globe size={16} strokeWidth={1.75} />
+              </span>
+              <div>
+                <h3>Web 控制台通道</h3>
+                <p>在控制台展示审批卡片与通知</p>
+              </div>
+            </div>
+            <Toggle
+              checked={draft.channels.web.enabled}
+              onChange={(enabled) =>
+                setDraft((current) => ({
+                  ...current,
+                  channels: { ...current.channels, web: { enabled } },
+                }))
+              }
+              ariaLabel="启用 web"
+              label="启用 web"
+            />
+          </div>
 
-        <div className="section-title">飞书 feishu</div>
+          <div className="channel-row-head">
+            <div className="agent-card-title">
+              <span className="agent-icon desktop">
+                <Monitor size={16} strokeWidth={1.75} />
+              </span>
+              <div>
+                <h3>Desktop 通道</h3>
+                <p>向本机桌面发送通知</p>
+              </div>
+            </div>
+            <Toggle
+              checked={draft.channels.desktop.enabled}
+              onChange={(enabled) =>
+                setDraft((current) => ({
+                  ...current,
+                  channels: { ...current.channels, desktop: { enabled } },
+                }))
+              }
+              ariaLabel="启用 desktop"
+              label="启用 desktop"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <ChannelHead
+          tone="feishu"
+          title="飞书 feishu"
+          subtitle="通过飞书机器人 Webhook 或应用凭证推送卡片"
+          icon={<Cloud size={16} strokeWidth={1.75} />}
+          enabled={feishu.enabled}
+          onToggle={(enabled) =>
+            setDraft((current) => ({
+              ...current,
+              channels: { ...current.channels, feishu: { ...feishu, enabled } },
+            }))
+          }
+          label="启用飞书通道"
+        />
         <div className="form-grid">
-          <Field label="启用" className="span-2">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={feishu.enabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    channels: { ...current.channels, feishu: { ...feishu, enabled: event.target.checked } },
-                  }))
-                }
-              />
-              启用飞书通道
-            </label>
-          </Field>
           <Field label="webhookUrlSecret（密钥名）">
             <SecretNameInput
               value={feishu.webhookUrlSecret ?? ""}
@@ -134,24 +149,24 @@ export function ChannelsPage() {
             />
           </Field>
         </div>
+      </section>
 
-        <div className="section-title">Webhook 通道</div>
+      <section className="panel">
+        <ChannelHead
+          tone="webhook"
+          title="Webhook 通道"
+          subtitle="推送到钉钉、企业微信、Slack、Discord 或自定义地址"
+          icon={<Radio size={16} strokeWidth={1.75} />}
+          enabled={webhook.enabled}
+          onToggle={(enabled) =>
+            setDraft((current) => ({
+              ...current,
+              channels: { ...current.channels, webhook: { ...webhook, enabled } },
+            }))
+          }
+          label="启用 webhook"
+        />
         <div className="form-grid">
-          <Field label="启用">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={webhook.enabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    channels: { ...current.channels, webhook: { ...webhook, enabled: event.target.checked } },
-                  }))
-                }
-              />
-              启用 webhook
-            </label>
-          </Field>
           <Field label="preset">
             <select
               value={webhook.preset ?? "custom"}
@@ -172,7 +187,7 @@ export function ChannelsPage() {
               ))}
             </select>
           </Field>
-          <Field label="urlSecret（密钥名）" className="span-2">
+          <Field label="urlSecret（密钥名）">
             <SecretNameInput
               value={webhook.urlSecret ?? ""}
               secrets={secretNames}
@@ -189,64 +204,110 @@ export function ChannelsPage() {
 
       <section className="panel">
         <h3>来源 sources</h3>
-        <div className="form-grid">
-          <Field label="GitHub">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={github.enabled}
-                onChange={(event) =>
+        <div className="channel-list">
+          <div>
+            <ChannelHead
+              tone="github"
+              title="GitHub"
+              subtitle="接收 GitHub webhook 事件"
+              icon={<Github size={16} strokeWidth={1.75} />}
+              enabled={github.enabled}
+              onToggle={(enabled) =>
+                setDraft((current) => ({
+                  ...current,
+                  sources: { ...current.sources, github: { ...github, enabled } },
+                }))
+              }
+              label="启用 GitHub"
+            />
+            <Field label="webhookSecretKey（密钥名）">
+              <SecretNameInput
+                value={github.webhookSecretKey ?? ""}
+                secrets={secretNames}
+                onChange={(value) =>
                   setDraft((current) => ({
                     ...current,
-                    sources: { ...current.sources, github: { ...github, enabled: event.target.checked } },
+                    sources: { ...current.sources, github: { ...github, webhookSecretKey: value || undefined } },
                   }))
                 }
               />
-              启用 GitHub
-            </label>
-          </Field>
-          <Field label="webhookSecretKey（密钥名）">
-            <SecretNameInput
-              value={github.webhookSecretKey ?? ""}
-              secrets={secretNames}
-              onChange={(value) =>
+            </Field>
+          </div>
+          <div>
+            <ChannelHead
+              tone="gitlab"
+              title="GitLab"
+              subtitle="接收 GitLab webhook 事件"
+              icon={<GitlabMark />}
+              enabled={gitlab.enabled}
+              onToggle={(enabled) =>
                 setDraft((current) => ({
                   ...current,
-                  sources: { ...current.sources, github: { ...github, webhookSecretKey: value || undefined } },
+                  sources: { ...current.sources, gitlab: { ...gitlab, enabled } },
                 }))
               }
+              label="启用 GitLab"
             />
-          </Field>
-          <Field label="GitLab">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={gitlab.enabled}
-                onChange={(event) =>
+            <Field label="webhookSecretKey（密钥名）">
+              <SecretNameInput
+                value={gitlab.webhookSecretKey ?? ""}
+                secrets={secretNames}
+                onChange={(value) =>
                   setDraft((current) => ({
                     ...current,
-                    sources: { ...current.sources, gitlab: { ...gitlab, enabled: event.target.checked } },
+                    sources: { ...current.sources, gitlab: { ...gitlab, webhookSecretKey: value || undefined } },
                   }))
                 }
               />
-              启用 GitLab
-            </label>
-          </Field>
-          <Field label="webhookSecretKey（密钥名）">
-            <SecretNameInput
-              value={gitlab.webhookSecretKey ?? ""}
-              secrets={secretNames}
-              onChange={(value) =>
-                setDraft((current) => ({
-                  ...current,
-                  sources: { ...current.sources, gitlab: { ...gitlab, webhookSecretKey: value || undefined } },
-                }))
-              }
-            />
-          </Field>
+            </Field>
+          </div>
         </div>
       </section>
+
+      <SaveBar dirty={dirty} onReset={reset} onSave={() => void save()} saveLabel="保存配置" />
     </div>
+  );
+}
+
+function ChannelHead({
+  tone,
+  title,
+  subtitle,
+  icon,
+  enabled,
+  onToggle,
+  label,
+}: {
+  tone: string;
+  title: string;
+  subtitle: string;
+  icon: ReactNode;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  label: string;
+}) {
+  return (
+    <div className="channel-row-head">
+      <div className="agent-card-title">
+        <span className={`agent-icon ${tone}`}>{icon}</span>
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      <Toggle checked={enabled} onChange={onToggle} label={label} />
+    </div>
+  );
+}
+
+function GitlabMark() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 21.2l3.3-10.15H8.7L12 21.2zM8.7 11.05L6.55 4.4a.4.4 0 0 0-.76.05L3 11.05h5.7zm11.3 0h-5.7l2.15-6.65a.4.4 0 0 1 .76.05L20 11.05zM3 11.05l8.2 10.15L1.7 14.3a.8.8 0 0 1 .3-1.15L3 11.05zm18 0l1 2.1a.8.8 0 0 1-.3 1.15L12.8 21.2 21 11.05z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 

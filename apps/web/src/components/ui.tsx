@@ -3,7 +3,12 @@ import { X } from "lucide-react";
 import { useHub, type ToastItem } from "../context";
 
 export function StatusChip({ status }: { status: string }) {
-  return <span className={`status-chip ${status.toLowerCase()}`}>{statusLabelSafe(status)}</span>;
+  return (
+    <span className={`status-chip ${status.toLowerCase()}`}>
+      <span className="chip-dot" />
+      {statusLabelSafe(status)}
+    </span>
+  );
 }
 
 function statusLabelSafe(status: string): string {
@@ -32,6 +37,70 @@ function statusLabelSafe(status: string): string {
     disabled: "停用",
   };
   return map[status] ?? status;
+}
+
+export function Toggle({
+  checked,
+  onChange,
+  label,
+  disabled,
+  ariaLabel,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <label className={`toggle${checked ? " on" : ""}${disabled ? " disabled" : ""}`}>
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        aria-checked={checked}
+        aria-label={ariaLabel ?? label}
+      />
+      <span className="toggle-track" aria-hidden="true">
+        <span className="toggle-thumb" />
+      </span>
+      {label ? <span className="toggle-label">{label}</span> : null}
+    </label>
+  );
+}
+
+export function SaveBar({
+  dirty,
+  onReset,
+  onSave,
+  saving,
+  saveLabel = "保存",
+}: {
+  dirty: boolean;
+  onReset: () => void;
+  onSave: () => void;
+  saving?: boolean;
+  saveLabel?: string;
+}) {
+  if (!dirty) return null;
+  return (
+    <div className="save-bar" role="status">
+      <div className="save-bar-msg">
+        <span className="dirty-dot" />
+        有未保存的更改
+      </div>
+      <div className="save-bar-actions">
+        <button className="btn" type="button" onClick={onReset} disabled={saving}>
+          重置
+        </button>
+        <button className="btn primary" type="button" disabled={saving} onClick={onSave}>
+          {saving ? "保存中…" : saveLabel}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function Modal({
