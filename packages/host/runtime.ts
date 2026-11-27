@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { decide, buildJob, DecisionError, type DecisionInput } from "../kernel/decide.ts";
-import { emptyView, evolve, ProjectionChanges } from "../kernel/evolve.ts";
+import { emptyView, evolve, ProjectionChanges, replay } from "../kernel/evolve.ts";
 import { nextCronAt } from "../kernel/cron.ts";
 import { ruleByName } from "../kernel/rules.ts";
 import type {
@@ -310,21 +310,24 @@ export class Runtime {
     }
   }
 
+  private *loggedFacts(): Iterable<Fact> {
+    for (const row of this.db.prepare("SELECT fact FROM fact_log ORDER BY seq").iterate()) {
+      yield JSON.parse(String(row.fact)) as Fact;
+    }
+  }
+
   rebuild(): HubView {
-    const rows = this.db.prepare("SELECT fact FROM fact_log ORDER BY seq").all();
-    const facts = rows.map((row) => JSON.parse(String(row.fact)) as Fact);
-    const rules = this.view.rules;
-    const view = evolve(emptyView(rules), facts);
     this.db.exec("BEGIN IMMEDIATE");
     try {
+      const view = replay(this.view.rules, this.loggedFacts());
       this.persistView(view);
       this.db.exec("COMMIT");
+      this.view = view;
+      return view;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
-    this.view = view;
-    return view;
   }
 
   commit(input: DecisionInput, now = this.now()): { facts: Fact[]; view: HubView } {
