@@ -49,10 +49,17 @@ class Rows<T extends { id: string }> {
   values: T[];
   private owned = false;
   private changes?: Map<string, T>;
+  private positions?: Map<string, number>;
 
-  constructor(values: T[], changes?: Map<string, T>) {
+  constructor(values: T[], changes?: Map<string, T>, indexed = false) {
     this.values = values;
     this.changes = changes;
+    if (indexed) this.positions = new Map(values.map((row, index) => [row.id, index]));
+  }
+
+  protected indexOf(id: string): number {
+    if (this.positions) return this.positions.get(id) ?? -1;
+    return this.values.findIndex(row => row.id === id);
   }
 
   private write(index: number, row: T): void {
@@ -65,16 +72,26 @@ class Rows<T extends { id: string }> {
   }
 
   put(row: T): void {
-    const index = this.values.findIndex(item => item.id === row.id);
+    const index = this.indexOf(row.id);
+    if (index < 0) this.positions?.set(row.id, this.values.length);
     this.write(index < 0 ? this.values.length : index, row);
   }
 
   patch(id: string, update: (row: T) => T): void {
-    const index = this.values.findIndex(item => item.id === id);
+    const index = this.indexOf(id);
     if (index < 0) return;
     const row = this.values[index];
     const updated = update(row);
     if (updated !== row) this.write(index, updated);
+  }
+
+  patchIds(ids: string[], update: (row: T) => T): void {
+    if (this.positions || ids.length <= 1) {
+      for (const id of new Set(ids)) this.patch(id, update);
+    } else {
+      const wanted = new Set(ids);
+      this.matching(row => wanted.has(row.id), update);
+    }
   }
 
   matching(test: (row: T) => boolean, update: (row: T) => T): void {
@@ -84,13 +101,48 @@ class Rows<T extends { id: string }> {
   }
 }
 
-function projectionRows(view: HubView, changes?: ProjectionChanges) {
+// A receipt addresses deliveries by (card, channel), which can match multiple IDs.
+class DeliveryRows extends Rows<DeliveryRecord> {
+  private groups?: Map<string, Set<string>>;
+
+  constructor(values: DeliveryRecord[], changes?: Map<string, DeliveryRecord>, indexed = false) {
+    super(values, changes, indexed);
+    // Indexed batches always begin with an empty replay view.
+    if (indexed) this.groups = new Map();
+  }
+
+  private key(cardId: string, channel: string): string {
+    return JSON.stringify([cardId, channel]);
+  }
+
+  override put(row: DeliveryRecord): void {
+    if (this.groups) {
+      const old = this.values[this.indexOf(row.id)];
+      if (old) this.groups.get(this.key(old.cardId, old.channel))?.delete(row.id);
+      const key = this.key(row.cardId, row.channel);
+      const ids = this.groups.get(key) ?? new Set<string>();
+      ids.add(row.id);
+      this.groups.set(key, ids);
+    }
+    super.put(row);
+  }
+
+  patchChannel(cardId: string, channel: string, update: (row: DeliveryRecord) => DeliveryRecord): void {
+    if (this.groups) {
+      for (const id of this.groups.get(this.key(cardId, channel)) ?? []) this.patch(id, update);
+    } else {
+      this.matching(row => row.cardId === cardId && row.channel === channel, update);
+    }
+  }
+}
+
+function projectionRows(view: HubView, changes?: ProjectionChanges, indexed = false) {
   return {
-    events: new Rows(view.events, changes?.events),
-    runs: new Rows(view.runs, changes?.runs),
-    cards: new Rows(view.cards, changes?.cards),
-    timers: new Rows(view.timers, changes?.timers),
-    deliveries: new Rows(view.deliveries, changes?.deliveries),
+    events: new Rows(view.events, changes?.events, indexed),
+    runs: new Rows(view.runs, changes?.runs, indexed),
+    cards: new Rows(view.cards, changes?.cards, indexed),
+    timers: new Rows(view.timers, changes?.timers, indexed),
+    deliveries: new DeliveryRows(view.deliveries, changes?.deliveries, indexed),
   };
 }
 
@@ -107,8 +159,7 @@ function projectFact(next: HubView, rows: ReturnType<typeof projectionRows>, fac
       bump(next.nextIds, "run", fact.run.id);
       if (fact.run.eventIds.length) {
         const runId = fact.run.id;
-        const ids = new Set(fact.run.eventIds);
-        rows.events.matching(event => ids.has(event.id), event => ({ ...event, runId, routed: true }));
+        rows.events.patchIds(fact.run.eventIds, event => ({ ...event, runId, routed: true }));
       }
       return;
     }
@@ -208,15 +259,15 @@ function projectFact(next: HubView, rows: ReturnType<typeof projectionRows>, fac
       return;
     }
     case "delivery.delivered": {
-      rows.deliveries.matching(
-        delivery => delivery.cardId === fact.cardId && delivery.channel === fact.channel,
+      rows.deliveries.patchChannel(
+        fact.cardId, fact.channel,
         delivery => ({ ...delivery, status: "delivered", externalId: fact.externalId ?? delivery.externalId, updatedAt: fact.at }),
       );
       return;
     }
     case "delivery.failed": {
-      rows.deliveries.matching(
-        delivery => delivery.cardId === fact.cardId && delivery.channel === fact.channel,
+      rows.deliveries.patchChannel(
+        fact.cardId, fact.channel,
         delivery => ({ ...delivery, status: "failed", error: fact.error, updatedAt: fact.at }),
       );
       return;
@@ -256,8 +307,16 @@ export function applyFact(view: HubView, fact: Fact): HubView {
 
 export function evolve(view: HubView, facts: readonly Fact[], changes?: ProjectionChanges): HubView {
   if (!facts.length) return view;
+  return reduceBatch(view, facts, projectionRows(view, changes), changes);
+}
+
+export function replay(rules: Rule[], facts: Iterable<Fact>): HubView {
+  const view = emptyView(rules);
+  return reduceBatch(view, facts, projectionRows(view, undefined, true));
+}
+
+function reduceBatch(view: HubView, facts: Iterable<Fact>, rows: ReturnType<typeof projectionRows>, changes?: ProjectionChanges): HubView {
   const next = { ...view, nextIds: { ...view.nextIds }, pauses: { ...view.pauses } };
-  const rows = projectionRows(view, changes);
   for (const fact of facts) projectFact(next, rows, fact, changes);
   return { ...next, events: rows.events.values, runs: rows.runs.values, cards: rows.cards.values,
     deliveries: rows.deliveries.values, timers: rows.timers.values };
