@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   Card,
   DeliveryRecord,
@@ -394,15 +395,20 @@ function applyReceipt(
 function finishRun(view: HubView, input: Extract<DecisionInput, { type: "result" }>, now: number): Fact[] {
   const run = findRun(view, input.runId);
   if (!run) throw new DecisionError("not_found", `run not found: ${input.runId}`);
+  if (input.runToken && run.runToken && input.runToken !== run.runToken) {
+    throw new DecisionError("conflict", "run token mismatch");
+  }
   if (run.status === "done" || run.status === "nothing" || run.status === "failed" || run.status === "cancelled") {
-    if (run.outcome === input.outcome) return [];
+    const sameResult = run.outcome === input.outcome
+      && (!input.sessionId || input.sessionId === run.sessionId)
+      && input.error === run.error
+      && isDeepStrictEqual(input.receipt, run.receipt)
+      && isDeepStrictEqual(input.usage, run.usage);
+    if (sameResult) return [];
     throw new DecisionError("conflict", `run ${input.runId} already finished`);
   }
   if (run.status !== "claimed" && run.status !== "running") {
     throw new DecisionError("conflict", `run ${input.runId} is ${run.status}`);
-  }
-  if (input.runToken && run.runToken && input.runToken !== run.runToken) {
-    throw new DecisionError("conflict", "run token mismatch");
   }
   const facts: Fact[] = [
     {

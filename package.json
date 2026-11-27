@@ -14,7 +14,7 @@
     "dev:web": "npm --prefix apps/web run dev",
     "build:web": "npm --prefix apps/web run build",
     "start": "node packages/host/cli.ts up",
-    "test:e2e": "node --test --test-timeout=30000 tests/e2e.test.ts",
+    "test:e2e": "node --test --test-timeout=30000 tests/*.test.ts",
     "test": "npm run test:core && npm run test:worker && npm run test:plugins && npm run test:e2e"
   }
 }

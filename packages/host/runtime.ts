@@ -418,11 +418,10 @@ export class Runtime {
     now = this.now(),
   ) {
     const { facts, view } = this.commit({ type: "result", runId, ...body }, now);
-    const card = facts.find((fact) => fact.type === "card.created");
     return {
       facts,
       view,
-      cardId: card && card.type === "card.created" ? card.card.id : undefined,
+      cardId: view.cards.find(item => item.runId === runId)?.id,
     };
   }
 
