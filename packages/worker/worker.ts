@@ -1,5 +1,7 @@
 import type { AppConfig, Job } from "../plugins/agents/types.ts";
-import { HubClient } from "./client.ts";
+import { setTimeout as waitDelay } from "node:timers/promises";
+import { ResultOutbox, type PendingResult } from "./outbox.ts";
+import { HubClient, HubError } from "./client.ts";
 import { executeJob, type ExecuteJobOptions, type RunResultPayload } from "./runner.ts";
 
 const DEFAULT_CAPACITY = 2;
@@ -26,7 +28,6 @@ export interface WorkerOptions {
 interface RunningRun {
   controller: AbortController;
   promise: Promise<void>;
-  job: Job;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -34,21 +35,6 @@ function isAbortError(error: unknown): boolean {
     (error instanceof Error && error.name === "AbortError") ||
     (error instanceof DOMException && error.name === "AbortError")
   );
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason instanceof Error ? signal.reason : new Error("Aborted"));
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal?.reason instanceof Error ? signal.reason : new Error("Aborted"));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }
 
 export class Worker {
@@ -64,6 +50,7 @@ export class Worker {
   #pollController: AbortController | undefined;
   #loop: Promise<void> | undefined;
   #stopping = false;
+  #outbox?: ResultOutbox;
 
   constructor(options: WorkerOptions) {
     this.#client =
@@ -90,6 +77,10 @@ export class Worker {
     if (this.#loop) return;
     this.#stopping = false;
     this.#pollController = new AbortController();
+    this.#outbox = new ResultOutbox(this.#stateDir, this.#client.baseUrl);
+    for (const entry of this.#outbox.pending()) {
+      this.#track(entry.runId, () => this.#deliver(entry));
+    }
     this.#loop = this.#pollLoop();
   }
 
@@ -105,6 +96,8 @@ export class Worker {
       }
     }
     await Promise.allSettled([...this.#running.values()].map((run) => run.promise));
+    this.#outbox?.close();
+    this.#outbox = undefined;
     this.#loop = undefined;
     this.#pollController = undefined;
   }
@@ -143,7 +136,7 @@ export class Worker {
         failures += 1;
         this.#log(`poll error (${failures}): ${(error as Error).message}; retrying in ${delay}ms`);
         try {
-          await sleep(delay, signal);
+          await waitDelay(delay, undefined, { signal });
         } catch {
           break;
         }
@@ -161,12 +154,17 @@ export class Worker {
       this.#log(`at capacity (${this.#capacity}); not starting run ${job.runId}`);
       return;
     }
+    this.#track(job.runId, controller => this.#execute(job, controller));
+  }
+
+  #track(runId: string, work: (controller: AbortController) => Promise<void>): void {
     const controller = new AbortController();
-    const promise = this.#execute(job, controller);
-    this.#running.set(job.runId, { controller, promise, job });
-    void promise.finally(() => {
-      this.#running.delete(job.runId);
-    });
+    const promise = work(controller).catch(error => {
+      this.#log(`run ${runId}: result storage failure, stopping polling: ${error}`);
+      this.#stopping = true;
+      this.#pollController?.abort();
+    }).finally(() => { this.#running.delete(runId); });
+    this.#running.set(runId, { controller, promise });
   }
 
   async #execute(job: Job, controller: AbortController): Promise<void> {
@@ -186,11 +184,33 @@ export class Worker {
         ...(job.sessionId ? { sessionId: job.sessionId } : {}),
       };
     }
-    try {
-      await this.#client.reportResult(job.runId, job.runToken, result);
-      this.#log(`run ${job.runId}: ${result.outcome}`);
-    } catch (error) {
-      this.#log(`run ${job.runId}: failed to report result: ${(error as Error).message}`);
+    const entry = { runId: job.runId, runToken: job.runToken, result };
+    this.#outbox!.save(entry);
+    await this.#deliver(entry);
+  }
+
+  async #deliver(entry: PendingResult): Promise<void> {
+    const signal = this.#pollController!.signal;
+    let failures = 0;
+    while (!signal.aborted) {
+      try {
+        const ack = await this.#client.reportResult(entry.runId, entry.runToken, entry.result, signal);
+        if (ack?.ok !== true) throw new Error("missing Hub acknowledgement");
+      } catch (error) {
+        if (signal.aborted) return;
+        if (error instanceof HubError && [400, 404, 409, 422].includes(error.status)) {
+          this.#outbox!.reject(entry, error.message);
+          this.#log(`run ${entry.runId}: rejected result retained for review: ${error.message}`);
+          return;
+        }
+        const delay = BACKOFF_MS[Math.min(failures++, BACKOFF_MS.length - 1)]!;
+        this.#log(`run ${entry.runId}: result pending, retrying in ${delay}ms: ${error}`);
+        await waitDelay(delay, undefined, { signal }).catch(() => {});
+        continue;
+      }
+      this.#outbox!.acknowledge(entry);
+      this.#log(`run ${entry.runId}: ${entry.result.outcome}`);
+      return;
     }
   }
 }

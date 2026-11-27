@@ -39,6 +39,10 @@ export class HubClient {
     this.#fetch = options.fetch ?? fetch;
   }
 
+  get baseUrl(): string {
+    return this.#baseUrl;
+  }
+
   async pollWork(options: PollWorkOptions): Promise<Job | null> {
     const query = new URLSearchParams({
       worker: options.worker,
@@ -69,10 +73,12 @@ export class HubClient {
     runId: string,
     runToken: string,
     result: RunResultPayload,
+    signal?: AbortSignal,
   ): Promise<{ ok: true; cardId?: string }> {
     return this.#call("POST", `/v1/runs/${encodeURIComponent(runId)}/result`, {
       token: runToken || this.#authToken,
-      body: result,
+      body: { ...result, runToken },
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
     }) as Promise<{ ok: true; cardId?: string }>;
   }
 

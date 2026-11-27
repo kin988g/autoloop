@@ -133,6 +133,18 @@ describe("host HTTP API", () => {
     });
     assert.equal(result.ok, true);
     assert.ok(result.cardId);
+    const repeat = {
+      outcome: "done" as const,
+      runToken: job.runToken,
+      sessionId: "sess-persist",
+      receipt: { notice: { title: "ok", body: "closed" } },
+    };
+    assert.deepEqual(await client.result(job.runId, repeat), result);
+    for (const conflict of [{ runToken: "other-attempt" }, { receipt: {} }]) {
+      await assert.rejects(client.result(job.runId, { ...repeat, ...conflict }),
+        (error: unknown) => error instanceof HubError && error.status === 409);
+    }
+    assert.equal(server.runtime.view.cards.length, 1);
 
     const db = new DatabaseSync(join(dataDir, "hub.db"));
     const mode = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };

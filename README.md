@@ -26,6 +26,12 @@ npm run dev:web    # Vite，127.0.0.1:5173，已代理 /v1 与 /healthz
 
 数据目录默认 `~/.autoloop-studio`（`hub.db`、`config.json`、`rules.json`、`secrets.env`）。
 
+## Worker 结果恢复
+
+Worker 在上报前将执行结果写入状态目录的 `results.sqlite`。网络中断、超时及服务端暂时不可用时，Worker 退避重试，最长间隔 15 秒。结果等待确认期间占用一个 Worker 并发名额。收到 Hub 的成功确认后才删除本地回执。
+
+重启时使用原 Worker 状态目录和相同的 Hub URL，待确认结果会自动补报。Hub 需要保留原数据目录。HTTP 400、404、409、422 拒绝的结果留在 `results` 表，可按 `rejection IS NOT NULL` 查看原因。外部业务操作成功而 Worker 尚未保存结果时发生的崩溃，仍需业务系统用幂等键或对账处理。
+
 ## 测试
 
 ```bash
@@ -34,6 +40,7 @@ npm run test:core
 npm run test:worker
 npm run test:plugins
 npm run test:e2e
+node --test tests/result-recovery.test.ts  # 单独验证断网、确认丢失和进程重启
 ```
 
 ## 目录
