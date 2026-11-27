@@ -1,0 +1,12 @@
+node_modules/
+apps/web/node_modules/
+apps/web/dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.tar.gz
+.env
+.env.*
+.DS_Store

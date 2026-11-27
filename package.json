@@ -1,0 +1,20 @@
+{
+  "name": "autoloop-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test:core": "node --test packages/protocol/*.test.ts packages/kernel/*.test.ts packages/host/*.test.ts",
+    "test:worker": "node --test packages/worker/*.test.ts packages/plugins/agents/*.test.ts",
+    "test:plugins": "node --test packages/plugins/sources/*.test.ts packages/plugins/channels/*.test.ts",
+    "dev:hub": "node packages/host/cli.ts up",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "start": "node packages/host/cli.ts up",
+    "test:e2e": "node --test --test-timeout=30000 tests/e2e.test.ts",
+    "test": "npm run test:core && npm run test:worker && npm run test:plugins && npm run test:e2e"
+  }
+}
