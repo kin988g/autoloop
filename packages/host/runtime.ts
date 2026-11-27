@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { decide, buildJob, DecisionError, type DecisionInput } from "../kernel/decide.ts";
-import { emptyView, evolve } from "../kernel/evolve.ts";
+import { emptyView, evolve, ProjectionChanges } from "../kernel/evolve.ts";
 import { nextCronAt } from "../kernel/cron.ts";
 import { ruleByName } from "../kernel/rules.ts";
 import type {
@@ -198,8 +198,15 @@ export class Runtime {
     for (const listener of this.configListeners) listener();
   }
 
-  private persistView(view: HubView): void {
-    this.db.exec(`
+  private upsert(table: string, columns: string) {
+    const names = columns.split(",");
+    const updates = names.slice(1).map(name => `${name}=excluded.${name}`);
+    return this.db.prepare(`INSERT INTO ${table}(${columns}) VALUES (${names.map(() => "?").join(",")})
+      ON CONFLICT(${names[0]}) DO UPDATE SET ${updates.join(",")}`);
+  }
+
+  private persistView(view: HubView, changes?: ProjectionChanges): void {
+    if (!changes) this.db.exec(`
       DELETE FROM events;
       DELETE FROM runs;
       DELETE FROM cards;
@@ -207,11 +214,8 @@ export class Runtime {
       DELETE FROM timers;
       DELETE FROM pauses;
     `);
-    const ev = this.db.prepare(
-      `INSERT INTO events(id,type,source,lane,payload,dedupe_key,hops,rule_name,run_id,routed,circuit_broken,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    for (const event of view.events) {
+    const ev = this.upsert("events", "id,type,source,lane,payload,dedupe_key,hops,rule_name,run_id,routed,circuit_broken,created_at");
+    for (const event of changes?.events.values() ?? view.events) {
       ev.run(
         event.id,
         event.type,
@@ -227,11 +231,8 @@ export class Runtime {
         event.createdAt,
       );
     }
-    const rn = this.db.prepare(
-      `INSERT INTO runs(id,rule_name,lane,status,attempt,run_token,session_id,worker,event_ids,hops,outcome,error,usage,receipt,context,created_at,updated_at,claimed_at,started_at,finished_at,not_before)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    for (const run of view.runs) {
+    const rn = this.upsert("runs", "id,rule_name,lane,status,attempt,run_token,session_id,worker,event_ids,hops,outcome,error,usage,receipt,context,created_at,updated_at,claimed_at,started_at,finished_at,not_before");
+    for (const run of changes?.runs.values() ?? view.runs) {
       rn.run(
         run.id,
         run.ruleName,
@@ -256,11 +257,8 @@ export class Runtime {
         run.notBefore ?? null,
       );
     }
-    const cd = this.db.prepare(
-      `INSERT INTO cards(id,run_id,rule_name,lane,kind,status,title,body,options,answer,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    for (const card of view.cards) {
+    const cd = this.upsert("cards", "id,run_id,rule_name,lane,kind,status,title,body,options,answer,created_at,updated_at");
+    for (const card of changes?.cards.values() ?? view.cards) {
       cd.run(
         card.id,
         card.runId,
@@ -276,11 +274,8 @@ export class Runtime {
         card.updatedAt,
       );
     }
-    const dl = this.db.prepare(
-      `INSERT INTO deliveries(id,card_id,channel,status,external_id,error,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    );
-    for (const delivery of view.deliveries) {
+    const dl = this.upsert("deliveries", "id,card_id,channel,status,external_id,error,created_at,updated_at");
+    for (const delivery of changes?.deliveries.values() ?? view.deliveries) {
       dl.run(
         delivery.id,
         delivery.cardId,
@@ -292,11 +287,8 @@ export class Runtime {
         delivery.updatedAt,
       );
     }
-    const tm = this.db.prepare(
-      `INSERT INTO timers(id,rule_name,lane,run_id,session_id,fire_at,reason,hops,event_ids,fired,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    for (const timer of view.timers) {
+    const tm = this.upsert("timers", "id,rule_name,lane,run_id,session_id,fire_at,reason,hops,event_ids,fired,created_at");
+    for (const timer of changes?.timers.values() ?? view.timers) {
       tm.run(
         timer.id,
         timer.ruleName,
@@ -311,8 +303,11 @@ export class Runtime {
         timer.createdAt,
       );
     }
-    const ps = this.db.prepare("INSERT INTO pauses(rule_name, paused_at) VALUES (?,?)");
-    for (const [name, at] of Object.entries(view.pauses)) ps.run(name, at);
+    const ps = this.upsert("pauses", "rule_name,paused_at");
+    for (const name of changes?.pauses ?? Object.keys(view.pauses)) {
+      if (Object.hasOwn(view.pauses, name)) ps.run(name, view.pauses[name]);
+      else this.db.prepare("DELETE FROM pauses WHERE rule_name=?").run(name);
+    }
   }
 
   rebuild(): HubView {
@@ -340,8 +335,9 @@ export class Runtime {
     try {
       const insert = this.db.prepare("INSERT INTO fact_log(at, type, fact) VALUES (?,?,?)");
       for (const fact of facts) insert.run(fact.at, fact.type, json(fact));
-      const view = evolve(this.view, facts);
-      this.persistView(view);
+      const changes = new ProjectionChanges();
+      const view = evolve(this.view, facts, changes);
+      this.persistView(view, changes);
       this.db.exec("COMMIT");
       this.view = view;
     } catch (error) {
